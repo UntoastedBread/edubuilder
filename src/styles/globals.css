@@ -1,3 +1,4 @@
+/* ===== Reset & Variables ===== */
 *,
 *::before,
 *::after {
@@ -7,22 +8,29 @@
 }
 
 :root {
-  --bg: #fafafa;
+  --bg: #f8fafc;
   --bg-panel: #ffffff;
+  --bg-hover: #f1f5f9;
   --border: #e2e8f0;
-  --text: #1a202c;
-  --text-muted: #718096;
+  --border-light: #f1f5f9;
+  --text: #1e293b;
+  --text-muted: #64748b;
   --primary: #3b82f6;
   --primary-hover: #2563eb;
+  --primary-light: #eff6ff;
   --success: #22c55e;
+  --success-light: #f0fdf4;
   --error: #ef4444;
+  --error-light: #fef2f2;
   --warning: #f59e0b;
+  --neutral-light: #f8fafc;
   --radius: 8px;
   --radius-sm: 4px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --radius-lg: 12px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'SF Mono', 'Fira Code', monospace;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
 html, body {
@@ -31,14 +39,727 @@ html, body {
   color: var(--text);
   background: var(--bg);
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 button {
   cursor: pointer;
   font-family: inherit;
+  border: none;
+  background: none;
 }
 
 a {
   color: var(--primary);
   text-decoration: none;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ===== Build Page ===== */
+.build-page {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ===== Split Pane ===== */
+.split-pane {
+  display: flex;
+  height: 100%;
+}
+
+.split-pane-left,
+.split-pane-right {
+  height: 100%;
+  overflow: hidden;
+}
+
+.split-pane-divider {
+  width: 4px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.split-pane-divider:hover {
+  background: var(--primary);
+}
+
+/* ===== Chat Panel ===== */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-panel);
+}
+
+.chat-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.chat-welcome {
+  padding: 20px;
+  background: var(--primary-light);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+}
+
+.chat-welcome h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.chat-welcome ul {
+  margin: 8px 0 8px 20px;
+}
+
+.chat-welcome li {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+/* ===== Chat Messages ===== */
+.chat-message {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.chat-message-user {
+  flex-direction: row-reverse;
+}
+
+.chat-message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.chat-message-content {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chat-message-user .chat-message-content {
+  background: var(--primary);
+  color: white;
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.chat-message-assistant .chat-message-content {
+  background: var(--bg-hover);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.chat-message-content p {
+  margin-bottom: 8px;
+}
+
+.chat-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.dot-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: pulse 1.2s infinite;
+}
+
+/* ===== Chat Input ===== */
+.chat-input-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chat-input:focus {
+  border-color: var(--primary);
+}
+
+.chat-send-btn {
+  align-self: flex-end;
+}
+
+/* ===== Lesson Preview ===== */
+.lesson-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-title-input {
+  flex: 1;
+  border: none;
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
+  background: transparent;
+}
+
+.preview-title-input::placeholder {
+  color: var(--text-muted);
+}
+
+.preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.preview-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.lesson-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 15px;
+  text-align: center;
+}
+
+/* ===== Lesson Blocks (shared by build preview + learn page) ===== */
+.lesson-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.block-wrapper {
+  position: relative;
+  transition: opacity 0.3s ease;
+}
+
+.block-wrapper.dimmed {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.block-edit-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.block-wrapper:hover .block-edit-btn {
+  opacity: 1;
+}
+
+.block {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  animation: fadeSlideIn 0.3s ease;
+}
+
+.block-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.block-content {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.block-content h1,
+.block-content h2,
+.block-content h3 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.block-content ul,
+.block-content ol {
+  margin-left: 20px;
+  margin-bottom: 12px;
+}
+
+.block-content code {
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.block-content pre {
+  background: var(--bg-hover);
+  padding: 12px;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.block-image {
+  max-width: 100%;
+  border-radius: var(--radius);
+  margin-top: 12px;
+}
+
+/* ===== Quiz Block ===== */
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.quiz-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  text-align: left;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.quiz-option:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.quiz-option.selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.quiz-option.correct {
+  border-color: var(--success);
+  background: var(--success-light);
+}
+
+.quiz-option.incorrect {
+  border-color: var(--error);
+  background: var(--error-light);
+}
+
+.quiz-option:disabled {
+  cursor: default;
+}
+
+.quiz-option-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.quiz-feedback {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.feedback-correct {
+  background: var(--success-light);
+  border: 1px solid var(--success);
+}
+
+.feedback-incorrect {
+  background: var(--error-light);
+  border: 1px solid var(--error);
+}
+
+.feedback-neutral {
+  background: var(--neutral-light);
+  border: 1px solid var(--border);
+}
+
+.quiz-feedback strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ===== Short Answer ===== */
+.input-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  resize: vertical;
+  outline: none;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+
+.input-textarea:focus {
+  border-color: var(--primary);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--neutral-light);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+
+/* ===== Fill Blank ===== */
+.fill-blank-sentence {
+  font-size: 15px;
+  line-height: 2.2;
+  margin-bottom: 12px;
+}
+
+.fill-blank-input {
+  display: inline-block;
+  width: 120px;
+  border: none;
+  border-bottom: 2px solid var(--border);
+  padding: 2px 6px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s;
+  margin: 0 4px;
+}
+
+.fill-blank-input:focus {
+  border-bottom-color: var(--primary);
+}
+
+.fill-blank-input.correct {
+  border-bottom-color: var(--success);
+  background: var(--success-light);
+}
+
+.fill-blank-input.incorrect {
+  border-bottom-color: var(--error);
+  background: var(--error-light);
+}
+
+.text-error {
+  color: var(--error);
+}
+
+/* ===== Drag Order ===== */
+.drag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.drag-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  cursor: grab;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.drag-item:active {
+  cursor: grabbing;
+}
+
+.drag-item.dragging {
+  opacity: 0.5;
+  border-color: var(--primary);
+}
+
+.drag-item.correct {
+  border-color: var(--success);
+  background: var(--success-light);
+}
+
+.drag-item.incorrect {
+  border-color: var(--error);
+  background: var(--error-light);
+}
+
+.drag-handle {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.drag-correct-pos {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ===== Video Block ===== */
+.video-container {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  margin-bottom: 16px;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.video-iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.video-question {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ===== Sandbox Block ===== */
+.sandbox-iframe {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: white;
+}
+
+.text-muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ===== Learn Page ===== */
+.learn-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.learn-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  z-index: 10;
+}
+
+.learn-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.learn-standard {
+  display: inline-block;
+  background: var(--primary-light);
+  color: var(--primary);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.learn-content {
+  padding: 32px 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.learn-loading,
+.learn-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+.lesson-complete {
+  text-align: center;
+  padding: 32px;
+  background: var(--success-light);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--success);
+}
+
+.lesson-complete h2 {
+  color: var(--success);
+  margin-bottom: 8px;
+}
+
+/* ===== Progress Bar ===== */
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
