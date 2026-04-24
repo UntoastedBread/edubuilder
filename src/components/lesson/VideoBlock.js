@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import RichText from './RichText';
 
 function getEmbedUrl(url) {
   const ytMatch = url.match(
@@ -13,6 +14,15 @@ function getEmbedUrl(url) {
 }
 
 export default function VideoBlock({ data, onContinue }) {
+  // Guard for partial data during streaming
+  if (!data.url) {
+    return (
+      <div className="block block-video">
+        {data.caption && <h3 className="block-title"><RichText inline>{data.caption}</RichText></h3>}
+      </div>
+    );
+  }
+
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selected, setSelected] = useState(null);
   const [submitted, setSubmitted] = useState(false);
@@ -38,7 +48,7 @@ export default function VideoBlock({ data, onContinue }) {
 
   return (
     <div className="block block-video">
-      {data.caption && <h3 className="block-title">{data.caption}</h3>}
+      {data.caption && <h3 className="block-title"><RichText inline>{data.caption}</RichText></h3>}
       <div className="video-container">
         <iframe
           src={getEmbedUrl(data.url)}
@@ -49,7 +59,7 @@ export default function VideoBlock({ data, onContinue }) {
       </div>
       {question && !allDone && (
         <div className="video-question">
-          <p className="block-title">{question.question}</p>
+          <div className="block-title"><RichText inline>{question.question}</RichText></div>
           <div className="quiz-options">
             {question.options.map((opt, i) => (
               <button

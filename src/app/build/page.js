@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import SplitPane from '@/components/ui/SplitPane';
 import ChatPanel from '@/components/build/ChatPanel';
 import LessonPreview from '@/components/build/LessonPreview';
+import AppRail from '@/components/AppRail';
 
 export default function BuildPage() {
   const [lesson, setLesson] = useState({
@@ -14,66 +15,181 @@ export default function BuildPage() {
     standard: '',
     blocks: [],
   });
+  const [started, setStarted] = useState(false);
+  const [split, setSplit] = useState(100);
+  const pendingOpsRef = useRef(null);
+  const chatSendRef = useRef(null);
+
+  const handleStarted = useCallback(() => {
+    setStarted(true);
+    setSplit(40);
+  }, []);
 
   const handleLessonUpdate = useCallback((operations) => {
-    setLesson((prev) => {
-      let blocks = [...prev.blocks];
+    // Handle special _clear_streaming action
+    const hasClearStreaming = operations.some(op => op.action === '_clear_streaming');
+    if (hasClearStreaming) {
+      setLesson((prev) => ({
+        ...prev,
+        blocks: prev.blocks.map(b => {
+          if (b._streaming) {
+            const { _streaming, ...rest } = b;
+            return rest;
+          }
+          return b;
+        }),
+      }));
+      operations = operations.filter(op => op.action !== '_clear_streaming');
+      if (operations.length === 0) return;
+    }
 
-      for (const op of operations) {
-        switch (op.action) {
-          case 'add': {
-            const block = {
-              ...op.block,
-              id: op.block.id || uuidv4(),
-            };
-            blocks.push(block);
-            break;
-          }
-          case 'replace': {
-            const idx = blocks.findIndex((b) => b.id === op.blockId);
-            if (idx !== -1) {
-              blocks[idx] = { ...op.block, id: op.blockId };
-            }
-            break;
-          }
-          case 'remove': {
-            blocks = blocks.filter((b) => b.id !== op.blockId);
-            break;
-          }
-          case 'reorder': {
-            const ordered = [];
-            for (const id of op.order) {
-              const block = blocks.find((b) => b.id === id);
-              if (block) ordered.push(block);
-            }
-            blocks = ordered;
-            break;
+    // Handle _set_streaming_block action — creates block if missing, updates type/data if exists
+    const setBlockOps = operations.filter(op => op.action === '_set_streaming_block');
+    if (setBlockOps.length > 0) {
+      setLesson((prev) => {
+        let blocks = [...prev.blocks];
+        for (const op of setBlockOps) {
+          const idx = blocks.findIndex(b => b.id === op.blockId);
+          if (idx !== -1) {
+            blocks[idx] = { ...blocks[idx], type: op.block.type, data: op.block.data };
+          } else {
+            blocks.push({
+              id: op.blockId,
+              type: op.block.type || 'reading',
+              _streaming: true,
+              data: op.block.data || {},
+            });
           }
         }
-      }
+        return { ...prev, blocks };
+      });
+      operations = operations.filter(op => op.action !== '_set_streaming_block');
+      if (operations.length === 0) return;
+    }
 
-      return { ...prev, blocks };
+    // Split add operations to stagger them in visually
+    const addOps = operations.filter(op => op.action === 'add');
+    const otherOps = operations.filter(op => op.action !== 'add');
+
+    // Apply non-add operations immediately
+    if (otherOps.length > 0) {
+      setLesson((prev) => {
+        let blocks = [...prev.blocks];
+        for (const op of otherOps) {
+          switch (op.action) {
+            case 'replace': {
+              const idx = blocks.findIndex((b) => b.id === op.blockId);
+              if (idx !== -1) blocks[idx] = { ...op.block, id: op.blockId };
+              break;
+            }
+            case 'remove':
+              blocks = blocks.filter((b) => b.id !== op.blockId);
+              break;
+            case 'reorder': {
+              const ordered = [];
+              for (const id of op.order) {
+                const block = blocks.find((b) => b.id === id);
+                if (block) ordered.push(block);
+              }
+              blocks = ordered;
+              break;
+            }
+          }
+        }
+        return { ...prev, blocks };
+      });
+    }
+
+    // Clear any pending stagger from a previous call
+    if (pendingOpsRef.current) {
+      clearTimeout(pendingOpsRef.current);
+      pendingOpsRef.current = null;
+    }
+
+    // Stagger add operations with 150ms delay each
+    addOps.forEach((op, i) => {
+      const delay = i * 150;
+      const timer = setTimeout(() => {
+        setLesson((prev) => {
+          const block = { ...op.block, id: op.block.id || uuidv4() };
+          return { ...prev, blocks: [...prev.blocks, block] };
+        });
+      }, delay);
+      if (i === addOps.length - 1) {
+        pendingOpsRef.current = timer;
+      }
     });
   }, []);
 
-  function handleEditBlock(block) {
-    console.log('Edit block:', block.id, block.type);
-  }
+  const handleTitleUpdate = useCallback((title) => {
+    setLesson((prev) => {
+      if (prev.title !== 'Untitled Lesson') return prev;
+      return { ...prev, title };
+    });
+  }, []);
+
+  const handleReorder = useCallback((newBlocks) => {
+    setLesson((prev) => ({ ...prev, blocks: newBlocks }));
+  }, []);
+
+  const handleImageAction = useCallback((blockId, action) => {
+    if (action === 'delete') {
+      // Replace block with version without image
+      setLesson((prev) => {
+        const block = prev.blocks.find(b => b.id === blockId);
+        if (!block || block.type !== 'reading') return prev;
+        const { image, imagePosition, imageConfidence, imageDescription, ...rest } = block.data;
+        return {
+          ...prev,
+          blocks: prev.blocks.map(b =>
+            b.id === blockId ? { ...b, data: rest } : b
+          ),
+        };
+      });
+    } else if (action === 'retry') {
+      // Delete image and send retry message via chat
+      setLesson((prev) => {
+        const block = prev.blocks.find(b => b.id === blockId);
+        if (!block || block.type !== 'reading') return prev;
+        const title = block.data.title || 'Untitled block';
+        const { image, imagePosition, imageConfidence, imageDescription, ...rest } = block.data;
+        // Queue the send after state update
+        setTimeout(() => {
+          if (chatSendRef.current) {
+            chatSendRef.current(`Regenerate the image for the block titled "${title}"`);
+          }
+        }, 100);
+        return {
+          ...prev,
+          blocks: prev.blocks.map(b =>
+            b.id === blockId ? { ...b, data: rest } : b
+          ),
+        };
+      });
+    }
+  }, []);
 
   return (
     <div className="build-page">
+      <AppRail />
       <SplitPane
-        defaultSplit={40}
+        split={split}
+        onSplitChange={setSplit}
         left={
           <ChatPanel
             onLessonUpdate={handleLessonUpdate}
+            onTitleUpdate={handleTitleUpdate}
             lesson={lesson}
+            sendRef={chatSendRef}
+            expanded={!started}
+            onStarted={handleStarted}
           />
         }
         right={
           <LessonPreview
             lesson={lesson}
-            onEditBlock={handleEditBlock}
+            onReorder={handleReorder}
+            onImageAction={handleImageAction}
           />
         }
       />

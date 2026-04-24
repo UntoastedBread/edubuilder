@@ -1,13 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import LessonRenderer from '@/components/lesson/LessonRenderer';
 
-export default function LessonPreview({ lesson, onSave, onEditBlock }) {
+export default function LessonPreview({ lesson, onSave, onReorder, onImageAction }) {
   const [title, setTitle] = useState(lesson.title || 'Untitled Lesson');
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState(null);
   const [copied, setCopied] = useState(false);
+  const contentRef = useRef(null);
+  const prevBlockCount = useRef(lesson.blocks.length);
+
+  // Sync title from lesson state (e.g. when Claude sets it via tool call)
+  useEffect(() => {
+    if (lesson.title && lesson.title !== 'Untitled Lesson') {
+      setTitle(lesson.title);
+    }
+  }, [lesson.title]);
+
+  useEffect(() => {
+    if (lesson.blocks.length > prevBlockCount.current && contentRef.current) {
+      contentRef.current.scrollTo({
+        top: contentRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+    prevBlockCount.current = lesson.blocks.length;
+  }, [lesson.blocks.length]);
 
   async function handleSave() {
     setSaving(true);
@@ -68,11 +87,12 @@ export default function LessonPreview({ lesson, onSave, onEditBlock }) {
           )}
         </div>
       </div>
-      <div className="preview-content">
+      <div className="preview-content" ref={contentRef}>
         <LessonRenderer
           blocks={lesson.blocks}
           progressiveDisclosure={false}
-          onEditBlock={onEditBlock}
+          onReorder={onReorder}
+          onImageAction={onImageAction}
         />
       </div>
     </div>

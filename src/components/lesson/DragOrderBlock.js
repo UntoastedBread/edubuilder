@@ -1,8 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import RichText from './RichText';
 
-export default function DragOrderBlock({ data, onContinue }) {
+export default function DragOrderBlock({ data, onContinue, onScore }) {
+  // Guard for partial data during streaming
+  if (!data.items || data.items.length === 0) {
+    return (
+      <div className="block block-drag-order">
+        {data.instruction && <div className="block-title"><RichText inline>{data.instruction}</RichText></div>}
+      </div>
+    );
+  }
+
   const [items, setItems] = useState(() => {
     const shuffled = [...data.items];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -34,6 +44,7 @@ export default function DragOrderBlock({ data, onContinue }) {
 
   function handleSubmit() {
     setSubmitted(true);
+    if (onScore) onScore(isCorrectOrder());
   }
 
   function isCorrectOrder() {
@@ -46,7 +57,7 @@ export default function DragOrderBlock({ data, onContinue }) {
 
   return (
     <div className="block block-drag-order">
-      <h3 className="block-title">{data.instruction}</h3>
+      <div className="block-title"><RichText inline>{data.instruction}</RichText></div>
       <div className="drag-list">
         {items.map((item, i) => {
           const correct = submitted && item.id === data.correctOrder[i];
@@ -60,8 +71,9 @@ export default function DragOrderBlock({ data, onContinue }) {
               onDragOver={(e) => handleDragOver(e, i)}
               onDragEnd={handleDragEnd}
             >
+              <span className="drag-position">{i + 1}.</span>
               <span className="drag-handle">&#x2807;</span>
-              <span>{item.label}</span>
+              <span><RichText inline>{item.label}</RichText></span>
               {wrong && (
                 <span className="drag-correct-pos">
                   should be #{getCorrectPosition(item.id) + 1}
@@ -72,7 +84,7 @@ export default function DragOrderBlock({ data, onContinue }) {
         })}
       </div>
       {!submitted && (
-        <button className="btn btn-primary" onClick={handleSubmit}>
+        <button className="btn btn-primary block-submit" onClick={handleSubmit}>
           Submit
         </button>
       )}
@@ -80,12 +92,12 @@ export default function DragOrderBlock({ data, onContinue }) {
         <div className={`quiz-feedback ${isCorrectOrder() ? 'feedback-correct' : 'feedback-incorrect'}`}>
           <strong>{isCorrectOrder() ? 'Perfect order!' : 'Not quite right.'}</strong>
           {!isCorrectOrder() && (
-            <p>The correct order is: {data.correctOrder.map((id) => data.items.find((item) => item.id === id)?.label).join(' \u2192 ')}</p>
+            <p>The correct order is: {data.correctOrder.map((id) => data.items.find((item) => item.id === id)?.label).join(' → ')}</p>
           )}
         </div>
       )}
       {submitted && onContinue && (
-        <button className="btn btn-primary" onClick={onContinue}>
+        <button className="btn btn-primary block-continue" onClick={onContinue}>
           Continue
         </button>
       )}

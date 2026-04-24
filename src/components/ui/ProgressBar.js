@@ -1,7 +1,7 @@
 'use client';
 
 export default function ProgressBar({ current, total }) {
-  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  const percent = total > 0 ? Math.min(Math.round((current / total) * 100), 100) : 0;
 
   return (
     <div className="progress-bar-container">

@@ -19,8 +19,29 @@ export async function POST(request) {
         onText(chunk) {
           send('text', { content: chunk });
         },
+        onToolStart(name, input) {
+          send('tool_start', { name, input });
+        },
         onToolCall(name, input) {
           send('tool_call', { name, input });
+        },
+        onToolResult(name) {
+          send('tool_result', { name });
+        },
+        onTextBreak() {
+          send('text_break', {});
+        },
+        onToolBlockPartial(block) {
+          send('tool_block_partial', { block });
+        },
+        onToolStatus(message) {
+          send('tool_status', { message });
+        },
+        onToolProgress(data) {
+          send('tool_progress', data);
+        },
+        onBlockContentDelta(data) {
+          send('block_content_delta', data);
         },
         onDone() {
           send('done', {});
