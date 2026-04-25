@@ -6,13 +6,21 @@ import SplitPane from '@/components/ui/SplitPane';
 import ChatPanel from '@/components/build/ChatPanel';
 import LessonPreview from '@/components/build/LessonPreview';
 import AppRail from '@/components/AppRail';
+import { useMode } from '@/lib/ModeContext';
+
 
 export default function BuildPage() {
+  const { mode } = useMode();
   const [lesson, setLesson] = useState({
     title: 'Untitled Lesson',
     subject: '',
     level: '',
     standard: '',
+    curriculumRef: '',
+    audience: mode,
+    tags: [],
+    difficulty: '',
+    visibility: 'private',
     blocks: [],
   });
   const [started, setStarted] = useState(false);
@@ -40,6 +48,24 @@ export default function BuildPage() {
         }),
       }));
       operations = operations.filter(op => op.action !== '_clear_streaming');
+      if (operations.length === 0) return;
+    }
+
+    // Handle _finalize_block action — clear _streaming flag and set final data for a completed block
+    const finalizeOps = operations.filter(op => op.action === '_finalize_block');
+    if (finalizeOps.length > 0) {
+      setLesson((prev) => {
+        let blocks = [...prev.blocks];
+        for (const op of finalizeOps) {
+          const idx = blocks.findIndex(b => b.id === op.blockId);
+          if (idx !== -1) {
+            const { _streaming, ...rest } = blocks[idx];
+            blocks[idx] = { ...rest, type: op.block.type, data: op.block.data };
+          }
+        }
+        return { ...prev, blocks };
+      });
+      operations = operations.filter(op => op.action !== '_finalize_block');
       if (operations.length === 0) return;
     }
 
@@ -82,6 +108,21 @@ export default function BuildPage() {
               if (idx !== -1) blocks[idx] = { ...op.block, id: op.blockId };
               break;
             }
+            case 'edit': {
+              const idx = blocks.findIndex((b) => b.id === op.blockId);
+              if (idx !== -1) {
+                const block = blocks[idx];
+                if (op.data) {
+                  blocks[idx] = { ...block, data: { ...block.data, ...op.data } };
+                } else if (op.field && op.find != null && op.replace_with != null) {
+                  const current = block.data?.[op.field];
+                  if (typeof current === 'string') {
+                    blocks[idx] = { ...block, data: { ...block.data, [op.field]: current.replace(op.find, op.replace_with) } };
+                  }
+                }
+              }
+              break;
+            }
             case 'remove':
               blocks = blocks.filter((b) => b.id !== op.blockId);
               break;
@@ -122,10 +163,7 @@ export default function BuildPage() {
   }, []);
 
   const handleTitleUpdate = useCallback((title) => {
-    setLesson((prev) => {
-      if (prev.title !== 'Untitled Lesson') return prev;
-      return { ...prev, title };
-    });
+    setLesson((prev) => ({ ...prev, title }));
   }, []);
 
   const handleReorder = useCallback((newBlocks) => {
@@ -171,7 +209,7 @@ export default function BuildPage() {
 
   return (
     <div className="build-page">
-      <AppRail />
+      <AppRail forceClose={started} />
       <SplitPane
         split={split}
         onSplitChange={setSplit}
@@ -188,6 +226,8 @@ export default function BuildPage() {
         right={
           <LessonPreview
             lesson={lesson}
+            started={started}
+            onTitleUpdate={handleTitleUpdate}
             onReorder={handleReorder}
             onImageAction={handleImageAction}
           />

@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 
 export default function SplitPane({ left, right, defaultSplit = 40, split: controlledSplit, onSplitChange }) {
   const [internalSplit, setInternalSplit] = useState(defaultSplit);
+  const [dragging, setDragging] = useState(false);
   const containerRef = useRef(null);
   const draggingRef = useRef(false);
 
@@ -15,6 +16,7 @@ export default function SplitPane({ left, right, defaultSplit = 40, split: contr
     if (hideRight) return;
     e.preventDefault();
     draggingRef.current = true;
+    setDragging(true);
     containerRef.current?.classList.add('split-pane-dragging');
 
     function handleMouseMove(e) {
@@ -26,6 +28,7 @@ export default function SplitPane({ left, right, defaultSplit = 40, split: contr
 
     function handleMouseUp() {
       draggingRef.current = false;
+      setDragging(false);
       containerRef.current?.classList.remove('split-pane-dragging');
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -39,15 +42,26 @@ export default function SplitPane({ left, right, defaultSplit = 40, split: contr
     document.addEventListener('mouseup', handleMouseUp);
   }, [setSplitPercent, hideRight]);
 
+  const displayPercent = Math.round(splitPercent);
+
   return (
     <div className="split-pane" ref={containerRef}>
       <div className="split-pane-left" style={{ width: `${splitPercent}%` }}>
         {left}
       </div>
       <div
-        className={`split-pane-divider${hideRight ? ' split-pane-divider-hidden' : ''}`}
+        className={`split-pane-divider${hideRight ? ' split-pane-divider-hidden' : ''}${dragging ? ' split-pane-divider-active' : ''}`}
         onMouseDown={handleMouseDown}
-      />
+      >
+        <div className="divider-grip">
+          <span className="divider-dot" />
+          <span className="divider-dot" />
+          <span className="divider-dot" />
+        </div>
+        {dragging && (
+          <span className="divider-percent">{displayPercent}%</span>
+        )}
+      </div>
       <div
         className="split-pane-right"
         style={{ width: `${100 - splitPercent}%` }}

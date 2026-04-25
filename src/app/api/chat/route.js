@@ -1,7 +1,22 @@
-import { streamChat } from '@/lib/claude';
+import { streamChat, MODEL_BUILD, MODEL_CHAT } from '@/lib/claude';
+
+// Keywords that suggest building or modifying a lesson
+const BUILD_PATTERN = /\b(build|create|make|add|change|modify|replace|update|remove|delete|reorder|move|swap|edit|fix|redo|rebuild|redesign|harder|easier|shorter|longer|simpler|lesson|blocks?|quiz|reading|sandbox|interactive|simulation)\b/i;
+
+function selectModel(messages, lesson) {
+  const hasLesson = lesson?.blocks?.length >= 5;
+  if (!hasLesson) return MODEL_BUILD;
+
+  const lastMessage = messages[messages.length - 1]?.content || '';
+  if (BUILD_PATTERN.test(lastMessage)) return MODEL_BUILD;
+
+  // Lesson already built and message doesn't look like a modification — use Haiku
+  return MODEL_CHAT;
+}
 
 export async function POST(request) {
-  const { messages, lesson } = await request.json();
+  const { messages, lesson, mode } = await request.json();
+  const model = selectModel(messages, lesson);
 
   const encoder = new TextEncoder();
 
@@ -16,6 +31,8 @@ export async function POST(request) {
       await streamChat({
         messages,
         lesson: lesson || { blocks: [] },
+        model,
+        mode: mode || 'teacher',
         onText(chunk) {
           send('text', { content: chunk });
         },

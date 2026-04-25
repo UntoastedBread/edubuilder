@@ -1,10 +1,25 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useMode } from '@/lib/ModeContext';
+import { useI18n } from '@/lib/I18nContext';
 
-export default function ChatInput({ onSend, onStop, disabled, streaming }) {
+const BLOCK_TYPES = [
+  { type: 'reading', label: 'Reading', color: 'var(--block-reading)' },
+  { type: 'quiz', label: 'Quiz', color: 'var(--block-quiz)' },
+  { type: 'fill-blank', label: 'Fill the Blank', color: 'var(--block-fill-blank)' },
+  { type: 'drag-order', label: 'Drag & Order', color: 'var(--block-drag-order)' },
+  { type: 'short-answer', label: 'Short Answer', color: 'var(--block-short-answer)' },
+  { type: 'video', label: 'Video', color: 'var(--block-video)' },
+  { type: 'sandbox', label: 'Code Sandbox', color: 'var(--block-sandbox)' },
+];
+
+export default function ChatInput({ onSend, onStop, disabled, streaming, showPalette }) {
   const [text, setText] = useState('');
   const textareaRef = useRef(null);
+  const { mode } = useMode();
+  const { t } = useI18n();
+  const modeKey = mode === 'teacher' ? 'teacher' : 'learner';
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -31,6 +46,22 @@ export default function ChatInput({ onSend, onStop, disabled, streaming }) {
 
   return (
     <form className="chat-input-form" onSubmit={handleSubmit}>
+      {showPalette && (
+        <div className="block-palette">
+          <div className="block-palette-track">
+            {BLOCK_TYPES.map((bt) => (
+              <span
+                key={bt.type}
+                className="block-palette-pill"
+                style={{ '--pill-color': bt.color }}
+              >
+                <span className="block-palette-dot" />
+                {bt.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="chat-input-wrapper">
         <textarea
           ref={textareaRef}
@@ -39,7 +70,7 @@ export default function ChatInput({ onSend, onStop, disabled, streaming }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder="Describe your lesson..."
+          placeholder={t(`chat.placeholder.${modeKey}`)}
           disabled={disabled}
           rows={1}
         />

@@ -1,64 +1,31 @@
-'use client';
+import { getLesson } from '@/lib/lessons';
+import LearnPageClient from '@/components/learn/LearnPageClient';
 
-import { useState, useEffect } from 'react';
-import LessonRenderer from '@/components/lesson/LessonRenderer';
-import ProgressBar from '@/components/ui/ProgressBar';
+export async function generateMetadata({ params }) {
+  const { id } = await params;
+  const lesson = await getLesson(id);
 
-export default function LearnPage({ params }) {
-  const [lesson, setLesson] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState({ current: 1, total: 1 });
-
-  useEffect(() => {
-    async function load() {
-      const { id } = await params;
-      const res = await fetch(`/api/lessons/${id}`);
-      if (!res.ok) {
-        setError('Lesson not found');
-        setLoading(false);
-        return;
-      }
-      const data = await res.json();
-      setLesson(data);
-      setProgress({ current: 1, total: data.blocks.length });
-      setLoading(false);
-    }
-    load();
-  }, [params]);
-
-  if (loading) {
-    return (
-      <div className="learn-page">
-        <div className="learn-loading">Loading lesson...</div>
-      </div>
-    );
+  if (!lesson) {
+    return { title: 'Lesson not found | EduBuilder' };
   }
 
-  if (error) {
-    return (
-      <div className="learn-page">
-        <div className="learn-error">{error}</div>
-      </div>
-    );
-  }
+  const blockCount = lesson.blocks?.length || 0;
+  const description = `${blockCount}-block interactive lesson${lesson.subject ? ` on ${lesson.subject}` : ''}. Built with EduBuilder.`;
 
-  return (
-    <div className="learn-page">
-      <header className="learn-header">
-        <h1 className="learn-title">{lesson.title}</h1>
-        {lesson.standard && (
-          <span className="learn-standard">{lesson.standard}</span>
-        )}
-        <ProgressBar current={progress.current} total={progress.total} />
-      </header>
-      <main className="learn-content">
-        <LessonRenderer
-          blocks={lesson.blocks}
-          progressiveDisclosure={true}
-          onProgressChange={(current, total) => setProgress({ current, total })}
-        />
-      </main>
-    </div>
-  );
+  return {
+    title: `${lesson.title} | EduBuilder`,
+    description,
+    openGraph: {
+      title: lesson.title,
+      description,
+      type: 'article',
+      siteName: 'EduBuilder',
+    },
+  };
+}
+
+export default async function LearnPage({ params }) {
+  const { id } = await params;
+
+  return <LearnPageClient id={id} />;
 }

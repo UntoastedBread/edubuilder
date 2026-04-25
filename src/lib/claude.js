@@ -1,13 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { SYSTEM_PROMPT, buildToolDefinitions } from './prompts';
+import { getSystemPrompt, buildToolDefinitions } from './prompts';
 import { webSearch } from './search';
 import { v4 as uuidv4 } from 'uuid';
 
 const client = new Anthropic();
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// Model tiers — Sonnet 4.5 for building, Haiku 4.5 for simple chat
+export const MODEL_BUILD = 'claude-sonnet-4-5-20250929';
+export const MODEL_CHAT = 'claude-haiku-4-5-20251001';
 
 /**
  * Parse partial (incomplete) JSON by closing open strings, removing trailing
@@ -116,6 +116,22 @@ function applyOperations(lesson, input) {
       blocks = blocks.map(b =>
         b.id === op.blockId ? { ...op.block, id: op.blockId } : b
       );
+    } else if (op.action === 'edit' && op.blockId) {
+      blocks = blocks.map(b => {
+        if (b.id !== op.blockId) return b;
+        if (op.data) {
+          // Shallow merge: only update provided fields
+          return { ...b, data: { ...b.data, ...op.data } };
+        }
+        if (op.field && op.find != null && op.replace_with != null) {
+          // Find and replace within a text field
+          const current = b.data?.[op.field];
+          if (typeof current === 'string') {
+            return { ...b, data: { ...b.data, [op.field]: current.replace(op.find, op.replace_with) } };
+          }
+        }
+        return b;
+      });
     } else if (op.action === 'remove' && op.blockId) {
       blocks = blocks.filter(b => b.id !== op.blockId);
     } else if (op.action === 'reorder' && op.order) {
@@ -236,20 +252,103 @@ function reviewLesson(lesson) {
 }
 
 /**
+ * Extract searchable text from a block's data fields.
+ */
+function extractBlockText(block) {
+  const d = block.data || {};
+  const parts = [
+    d.title, d.content, d.question, d.description,
+    d.explanation, d.modelAnswer, d.instruction, d.template,
+    d.caption,
+  ];
+  if (Array.isArray(d.options)) {
+    for (const opt of d.options) {
+      parts.push(typeof opt === 'string' ? opt : opt?.text);
+    }
+  }
+  if (Array.isArray(d.hints)) parts.push(...d.hints);
+  if (Array.isArray(d.blanks)) {
+    for (const b of d.blanks) {
+      parts.push(b.answer);
+      if (Array.isArray(b.accept)) parts.push(...b.accept);
+    }
+  }
+  if (Array.isArray(d.items)) {
+    for (const item of d.items) parts.push(item.label);
+  }
+  return parts.filter(Boolean).join(' ');
+}
+
+/**
+ * Search lesson blocks by keyword. Returns matching blocks with full data.
+ */
+function searchBlocks(lesson, query) {
+  const q = query.toLowerCase();
+  const matches = [];
+  for (const block of (lesson.blocks || [])) {
+    const text = extractBlockText(block);
+    if (text.toLowerCase().includes(q)) {
+      matches.push(block);
+    }
+  }
+  return { query, matches, total: lesson.blocks?.length || 0 };
+}
+
+/**
  * Runs a streaming conversation with Claude that may involve multiple
  * tool-use turns. Calls callbacks as events occur.
  */
-export async function streamChat({ messages, lesson, onText, onToolStart, onToolCall, onToolResult, onTextBreak, onToolBlockPartial, onToolStatus, onToolProgress, onBlockContentDelta, onDone, onError }) {
+export async function streamChat({ messages, lesson, model, mode, onText, onToolStart, onToolCall, onToolResult, onTextBreak, onToolBlockPartial, onToolStatus, onToolProgress, onBlockContentDelta, onDone, onError }) {
   const tools = buildToolDefinitions();
 
-  // Inject current lesson state into the system prompt
-  const systemWithLesson = `${SYSTEM_PROMPT}
+  // Split system prompt: static part is cached, dynamic lesson state is not
+  // Compact summary with content preview per block
+  const blockSummary = (lesson.blocks || []).map((b, i) => {
+    const d = b.data || {};
+    const title = d.title || d.question?.slice(0, 60) || d.instruction?.slice(0, 60) || d.template?.slice(0, 60) || '';
+    let preview = '';
+    if (b.type === 'reading') {
+      preview = d.content ? d.content.slice(0, 80).replace(/\n/g, ' ') : '';
+    } else if (b.type === 'quiz') {
+      const opts = (d.options || []).map(o => typeof o === 'string' ? o : o?.text).filter(Boolean);
+      preview = opts.length ? `options: ${opts.join(' | ').slice(0, 80)}` : '';
+    } else if (b.type === 'fill-blank') {
+      const answers = (d.blanks || []).map(bl => bl.answer).filter(Boolean);
+      preview = answers.length ? `answers: ${answers.join(', ')}` : '';
+    } else if (b.type === 'drag-order') {
+      const labels = (d.items || []).map(it => it.label).filter(Boolean);
+      preview = labels.length ? `items: ${labels.join(' → ').slice(0, 80)}` : '';
+    } else if (b.type === 'video') {
+      preview = d.url || '';
+    } else if (b.type === 'short-answer') {
+      preview = d.modelAnswer ? d.modelAnswer.slice(0, 80).replace(/\n/g, ' ') : '';
+    } else if (b.type === 'sandbox') {
+      preview = d.description ? d.description.slice(0, 80) : '';
+    }
+    const previewLine = preview ? `\n     ${preview}` : '';
+    return `${i + 1}. [id: ${b.id}] ${b.type} — "${title}"${previewLine}`;
+  }).join('\n');
 
-## Current Lesson State
+  const lessonState = `## Current Lesson State
 The lesson currently has ${lesson.blocks?.length || 0} blocks:
-${JSON.stringify(lesson.blocks || [], null, 2)}
+${blockSummary || '(empty)'}
 
-Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
+Use these IDs when replacing or removing blocks.`;
+
+  const systemPrompt = getSystemPrompt(mode || 'teacher');
+
+  const system = [
+    {
+      type: 'text',
+      text: systemPrompt,
+      cache_control: { type: 'ephemeral' },
+    },
+    {
+      type: 'text',
+      text: lessonState,
+      cache_control: { type: 'ephemeral' },
+    },
+  ];
 
   // Build the messages array for Claude
   let claudeMessages = messages.map((m) => ({
@@ -270,9 +369,9 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
       isFirstTurn = false;
 
       const stream = await client.messages.stream({
-        model: 'claude-sonnet-4-5-20250929',
+        model: model || MODEL_BUILD,
         max_tokens: 16000,
-        system: systemWithLesson,
+        system,
         tools,
         messages: claudeMessages,
       });
@@ -292,6 +391,10 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
       // Block content streaming state (for streaming partial block data to client)
       let streamingBlockId = null;
       let lastStreamedData = '';
+      let lastContentDeltaTime = 0;
+      // Derived status from partial JSON — replaces generic "Building..." as blocks stream
+      let lastDerivedStatus = '';
+      let emittedTitleStatus = false;
 
       for await (const event of stream) {
         if (event.type === 'content_block_start') {
@@ -357,6 +460,15 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
                 }
               }
 
+              // Early status from lesson title (arrives before operations in JSON)
+              if (!emittedTitleStatus) {
+                const titleMatch = currentToolInput.match(/"title"\s*:\s*"([^"]+)"/);
+                if (titleMatch) {
+                  emittedTitleStatus = true;
+                  onToolStatus?.(`Building: ${titleMatch[1]}`);
+                }
+              }
+
               // Try to extract complete operations
               const { operations: ops, incompleteStart } = extractCompleteOperations(currentToolInput);
               const newOps = ops.slice(emittedPartialCount);
@@ -381,10 +493,23 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
                 const partialStr = currentToolInput.slice(incompleteStart);
                 const parsed = parsePartialJson(partialStr);
                 if (parsed?.action === 'add' && parsed?.block?.type) {
+                  // Derive status from the block being streamed
+                  const bt = parsed.block.type;
+                  const label = parsed.block.data?.title || parsed.block.data?.question?.slice(0, 50) || '';
+                  const verb = bt === 'reading' ? 'Writing' : bt === 'quiz' ? 'Creating' : bt === 'sandbox' ? 'Building' : bt === 'fill-blank' ? 'Creating' : 'Adding';
+                  const newStatus = label ? `${verb}: ${label}` : `${verb} ${bt} block`;
+                  if (newStatus !== lastDerivedStatus) {
+                    lastDerivedStatus = newStatus;
+                    onToolStatus?.(newStatus);
+                  }
+
                   const serialized = JSON.stringify(parsed.block);
-                  if (serialized !== lastStreamedData) {
+                  const now = Date.now();
+                  const isFirst = streamingBlockId === null;
+                  // Throttle content deltas to ~150ms intervals (first emission is always immediate)
+                  if (serialized !== lastStreamedData && (isFirst || now - lastContentDeltaTime >= 150)) {
                     lastStreamedData = serialized;
-                    const isFirst = streamingBlockId === null;
+                    lastContentDeltaTime = now;
                     if (isFirst) {
                       streamingBlockId = uuidv4();
                     }
@@ -392,7 +517,7 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
                   }
                 }
               }
-            } else if (currentToolName === 'web_search') {
+            } else if (currentToolName === 'web_search' || currentToolName === 'search_blocks') {
               // Extract query early from partial JSON
               if (!emittedStatus) {
                 const queryMatch = currentToolInput.match(/"query"\s*:\s*"([^"]*)"/);
@@ -404,12 +529,6 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
             }
           }
         } else if (event.type === 'content_block_stop') {
-          if (currentToolName === 'update_lesson') {
-            console.log('[status-debug] block_stop — emittedStatus:', emittedStatus, 'lastEmittedStatusCount:', lastEmittedStatusCount, 'input has status_message:', currentToolInput.includes('status_message'));
-            if (!emittedStatus && !currentToolInput.includes('status_message')) {
-              console.log('[status-debug] Claude did NOT include status_message in tool input');
-            }
-          }
           currentToolName = null;
           currentToolIndex = null;
           currentToolInput = '';
@@ -417,6 +536,8 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
           lastEmittedStatusCount = 0;
           streamingBlockId = null;
           lastStreamedData = '';
+          lastDerivedStatus = '';
+          emittedTitleStatus = false;
         }
       }
 
@@ -447,8 +568,6 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
                 }
               }
             }
-            // Small delay so the "Building..." status is visible to the user
-            await delay(600);
             onToolCall('update_lesson', block.input);
             // Keep server-side lesson state in sync for review_lesson
             currentLesson = applyOperations(currentLesson, block.input);
@@ -472,6 +591,14 @@ Each block has an "id" field. Use these IDs when replacing or removing blocks.`;
               type: 'tool_result',
               tool_use_id: block.id,
               content: JSON.stringify(searchResults),
+            });
+          } else if (block.name === 'search_blocks') {
+            const searchResult = searchBlocks(currentLesson, block.input.query);
+            onToolCall('search_blocks', searchResult);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify(searchResult),
             });
           }
 

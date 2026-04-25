@@ -14,7 +14,14 @@ function getEmbedUrl(url) {
 }
 
 export default function VideoBlock({ data, onContinue }) {
-  // Guard for partial data during streaming
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [allDone, setAllDone] = useState(
+    !data.checkQuestions || data.checkQuestions.length === 0
+  );
+
+  // Guard for partial data during streaming (hooks must be above)
   if (!data.url) {
     return (
       <div className="block block-video">
@@ -22,13 +29,6 @@ export default function VideoBlock({ data, onContinue }) {
       </div>
     );
   }
-
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [selected, setSelected] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [allDone, setAllDone] = useState(
-    !data.checkQuestions || data.checkQuestions.length === 0
-  );
 
   const question = data.checkQuestions?.[questionIndex];
 

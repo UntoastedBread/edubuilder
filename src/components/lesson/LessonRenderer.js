@@ -4,8 +4,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import BlockRenderer from './BlockRenderer';
 import LessonSidebar from './LessonSidebar';
+import { useI18n } from '@/lib/I18nContext';
 
 const SCORED_TYPES = new Set(['quiz', 'fill-blank', 'drag-order']);
+const SCORE_RING_CIRCUMFERENCE = 283; // 2 * pi * 45
 
 // ===== Drag grip icon =====
 function GripIcon() {
@@ -21,12 +23,12 @@ function GripIcon() {
   );
 }
 
+
 // ===== Streaming code view (sandbox blocks) =====
 function StreamingCodeView({ code, title, index }) {
   const preRef = useRef(null);
 
   useEffect(() => {
-    // Auto-scroll to bottom as code streams in
     if (preRef.current) {
       preRef.current.scrollTop = preRef.current.scrollHeight;
     }
@@ -56,23 +58,23 @@ function StreamingPlaceholder({ index, type }) {
         <span className="streaming-placeholder-type">{type} <span className="streaming-placeholder-dot">streaming...</span></span>
       </div>
       <div className="streaming-placeholder-body">
-        <svg className="streaming-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-        </svg>
-        <span>Building this block...</span>
+        <div className="skeleton-bar" style={{ width: '70%' }} />
+        <div className="skeleton-bar" style={{ width: '90%' }} />
+        <div className="skeleton-bar" style={{ width: '50%' }} />
       </div>
     </div>
   );
 }
 
-export default function LessonRenderer({ blocks, progressiveDisclosure = false, onReorder, onProgressChange, onImageAction }) {
+export default function LessonRenderer({ blocks, progressiveDisclosure = false, onReorder, onProgressChange, onBlockChange, onImageAction }) {
+  const { t } = useI18n();
   const [activeIndex, setActiveIndex] = useState(0);
   const [slideDir, setSlideDir] = useState('forward');
   const [score, setScore] = useState({ correct: 0, total: 0 });
-  const [scoreChanged, setScoreChanged] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const dragItemRef = useRef(null);
   const gripActiveRef = useRef(false);
+  const startTimeRef = useRef(Date.now());
 
   // Report progress changes via effect — cap at blocks.length to avoid > 100%
   useEffect(() => {
@@ -81,6 +83,41 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
       onProgressChange(current, blocks.length);
     }
   }, [activeIndex, blocks.length]);
+
+  // Report block type changes for contextual header
+  useEffect(() => {
+    if (onBlockChange && progressiveDisclosure) {
+      const isComplete = activeIndex >= blocks.length;
+      onBlockChange({
+        type: isComplete ? null : blocks[activeIndex]?.type,
+        index: activeIndex,
+        total: blocks.length,
+      });
+    }
+  }, [activeIndex, blocks.length]);
+
+  // Keyboard: Enter triggers Continue button
+  useEffect(() => {
+    if (!progressiveDisclosure) return;
+    function handleKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        const btn = document.querySelector('.lesson-renderer-learn .block-continue');
+        if (btn) {
+          e.preventDefault();
+          btn.click();
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [progressiveDisclosure]);
+
+  // Confetti burst on lesson completion
+  useEffect(() => {
+    if (progressiveDisclosure && activeIndex >= blocks.length && blocks.length > 0) {
+      confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+    }
+  }, [activeIndex, blocks.length, progressiveDisclosure]);
 
   function handleContinue() {
     setSlideDir('forward');
@@ -104,8 +141,6 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
       correct: prev.correct + (isCorrect ? 1 : 0),
       total: prev.total + 1,
     }));
-    setScoreChanged(true);
-    setTimeout(() => setScoreChanged(false), 400);
     if (isCorrect) {
       confetti({ particleCount: 80, spread: 60, origin: { y: 0.7 } });
     }
@@ -117,7 +152,6 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
   }
 
   function handleDragStart(e, index) {
-    // Only allow drag if it started from the grip icon
     if (!gripActiveRef.current) {
       e.preventDefault();
       return;
@@ -213,7 +247,15 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
   // Learn page (progressive): slide-based, one block at a time
   const isComplete = activeIndex >= blocks.length;
   const currentBlock = isComplete ? null : blocks[activeIndex];
+  const nextBlock = !isComplete && activeIndex + 1 < blocks.length ? blocks[activeIndex + 1] : null;
   const needsContinue = activeIndex < blocks.length;
+
+  // Build eyebrow text: "04 / 07 · Reading"
+  const BLOCK_TYPE_LABELS = {
+    reading: 'Reading', quiz: 'Quiz', 'fill-blank': 'Fill in the Blank',
+    'drag-order': 'Drag to Order', 'short-answer': 'Short Answer',
+    video: 'Video', sandbox: 'Sandbox',
+  };
 
   return (
     <div className="lesson-layout">
@@ -224,22 +266,16 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
       />
       <div className="lesson-main">
         <div className="lesson-renderer lesson-renderer-learn">
-          {/* Score ticker */}
-          {score.total > 0 && (
-            <div className={`score-ticker ${scoreChanged ? 'score-bounce' : ''}`}>
-              <span className="score-star">&#11088;</span> {score.correct}/{score.total}
-            </div>
-          )}
-
           {!isComplete && (
             <>
-              <div className="slide-nav">
-                <span className="slide-counter">
-                  {activeIndex + 1} / {blocks.length}
-                </span>
+              <div className="block-eyebrow">
+                {String(activeIndex + 1).padStart(2, '0')} / {String(blocks.length).padStart(2, '0')} &middot; {BLOCK_TYPE_LABELS[currentBlock.type] || currentBlock.type}
               </div>
-
-              <div key={currentBlock.id} className={`slide-${slideDir}`}>
+              <div
+                key={currentBlock.id}
+                className={slideDir === 'backward' ? 'slide-backward' : 'block-entrance'}
+                data-block-type={currentBlock.type}
+              >
                 <BlockRenderer
                   block={currentBlock}
                   isActive={true}
@@ -248,24 +284,76 @@ export default function LessonRenderer({ blocks, progressiveDisclosure = false, 
                 />
               </div>
 
+              {/* Next block peek — blurred preview */}
+              {nextBlock && (
+                <div className="next-block-peek" aria-hidden="true">
+                  <BlockRenderer
+                    block={nextBlock}
+                    isActive={false}
+                  />
+                </div>
+              )}
+
               {activeIndex > 0 && (
                 <button className="btn btn-secondary slide-prev-btn" onClick={handlePrev}>
-                  Previous
+                  {t('learn.previous')}
                 </button>
               )}
             </>
           )}
 
-          {isComplete && (
-            <div className="lesson-complete">
-              <h2>Lesson Complete!</h2>
-              {score.total > 0 ? (
-                <p className="lesson-score">You scored {score.correct}/{score.total}</p>
-              ) : (
-                <p>Great work finishing this lesson.</p>
-              )}
-            </div>
-          )}
+          {isComplete && (() => {
+            const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+            const elapsedMin = Math.max(1, Math.floor(elapsed / 60));
+
+            return (
+              <div className="lesson-complete">
+                {score.total > 0 && (
+                  <div className="complete-ring-container">
+                    <svg className="complete-ring" viewBox="0 0 100 100">
+                      <circle className="complete-ring-bg" cx="50" cy="50" r="45" />
+                      <circle
+                        className="complete-ring-fill"
+                        cx="50" cy="50" r="45"
+                        strokeDasharray={SCORE_RING_CIRCUMFERENCE}
+                        strokeDashoffset={SCORE_RING_CIRCUMFERENCE * (1 - score.correct / score.total)}
+                      />
+                    </svg>
+                    <div className="complete-percent">
+                      {Math.round((score.correct / score.total) * 100)}%
+                    </div>
+                  </div>
+                )}
+                <h2>Lesson <em>complete.</em></h2>
+                <p className="complete-sub">{score.total > 0 ? t('learn.complete.scored') : t('learn.complete.unscored')}</p>
+                <div className="complete-stats">
+                  <div className="complete-stat">
+                    <span className="complete-stat-value">{blocks.length}</span>
+                    <span className="complete-stat-label">{t('learn.blocks')}</span>
+                  </div>
+                  {score.total > 0 && (
+                    <div className="complete-stat">
+                      <span className="complete-stat-value">{score.correct}/{score.total}</span>
+                      <span className="complete-stat-label">{t('learn.correct')}</span>
+                    </div>
+                  )}
+                  <div className="complete-stat">
+                    <span className="complete-stat-value">{elapsedMin}</span>
+                    <span className="complete-stat-label">Minutes</span>
+                  </div>
+                </div>
+
+                <div className="complete-actions">
+                  <button className="btn btn-secondary" onClick={() => { setSlideDir('backward'); setActiveIndex(0); }}>
+                    {t('learn.review')}
+                  </button>
+                  <button className="btn btn-primary" onClick={() => window.location.href = '/build'}>
+                    {t('learn.buildOwn')}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

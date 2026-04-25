@@ -30,7 +30,11 @@ function hasImages(options) {
 }
 
 export default function QuizBlock({ data, onContinue, onScore }) {
-  // Guard for partial data during streaming
+  const isMulti = data.multiSelect === true;
+  const [selected, setSelected] = useState(isMulti ? new Set() : null);
+  const [submitted, setSubmitted] = useState(false);
+
+  // Guard for partial data during streaming (hooks must be above)
   if (!data.options || data.options.length === 0) {
     return (
       <div className="block block-quiz">
@@ -38,10 +42,6 @@ export default function QuizBlock({ data, onContinue, onScore }) {
       </div>
     );
   }
-
-  const isMulti = data.multiSelect === true;
-  const [selected, setSelected] = useState(isMulti ? new Set() : null);
-  const [submitted, setSubmitted] = useState(false);
 
   const useGrid = hasImages(data.options);
 

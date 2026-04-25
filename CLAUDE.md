@@ -1,6 +1,6 @@
 # EduBuilder
 
-AI-powered interactive lesson builder for NZ secondary school teachers. Teachers chat with Claude to build lessons; students access them via shareable URLs.
+AI-powered interactive lesson builder for NZ secondary school teachers. Teachers chat with Claude to build lessons; students access them via shareable URLs. Supports multiple user roles (teacher, learner, explorer) with internationalization in 5 languages.
 
 ## Tech Stack
 
@@ -24,8 +24,11 @@ Requires `.env.local` with `ANTHROPIC_API_KEY` and `BRAVE_API_KEY`.
 ## Architecture
 
 ```
+/               → Landing / home
 /build          → Teacher: chat with Claude to build lessons (split pane: chat + preview)
-/learn/[id]     → Student: take lesson with progressive disclosure
+/library        → Browse all lessons (mode-aware: teacher sees own, learner sees public)
+/learn          → Student: browse public lessons
+/learn/[id]     → Student: take lesson with progressive disclosure + progress tracking
 /api/chat       → SSE streaming endpoint (Claude + tool use agentic loop)
 /api/lessons    → CRUD for lesson JSON files
 /api/search     → Brave Search proxy for NCEA standards
@@ -49,6 +52,28 @@ Requires `.env.local` with `ANTHROPIC_API_KEY` and `BRAVE_API_KEY`.
 | `src/components/lesson/BlockRenderer.js` | Dispatches block type → component |
 | `src/lib/lessons.js` | File-based CRUD: `data/lessons/{uuid}.json` |
 | `src/styles/globals.css` | All styles — CSS variables, BEM-like classes, animations |
+| `src/components/Providers.js` | Wraps all context providers in correct order |
+| `src/lib/ModeContext.js` | User role state: teacher, learner, explorer. Persists to localStorage |
+| `src/lib/I18nContext.js` | Internationalization context with locale detection + `t()` translator |
+| `src/lib/ThemeContext.js` | Light/dark/system theme with `prefers-color-scheme` support |
+| `src/lib/i18n/` | Translation files for en, es, fr, de, ja |
+| `src/lib/duration.js` | Estimates lesson duration from block types and word counts |
+| `src/components/Onboarding.js` | First-visit modal for selecting user role |
+| `src/components/AppRail.js` | Side navigation rail — mode-aware nav, theme toggle, language selector |
+| `src/components/learn/LearnPageClient.js` | Student lesson-taking interface with progress tracking |
+| `src/components/learn/LearnBrowseClient.js` | Public lesson browsing grid |
+| `src/app/library/page.js` | Lesson library with grid cards, block type visualization |
+
+## Context Providers
+
+The app uses a composable provider pattern mounted in `Providers.js`:
+
+1. **ThemeProvider** (outermost) — light/dark/system, applies `dark` class to `<html>`, persists to localStorage
+2. **ModeProvider** — tracks user role (`teacher` / `learner` / `explorer`), triggers onboarding on first visit
+3. **I18nProvider** — auto-detects browser locale, provides `t(key, params)` translator, supports en/es/fr/de/ja
+4. **ToastProvider** (innermost) — `toast.success()`, `toast.info()`, `toast.warn()`, `toast.error()`
+
+All contexts are wrapped in `<Providers>` in `layout.js`. Components access them via `useMode()`, `useI18n()`, `useTheme()`, `useToast()`.
 
 ## Streaming Architecture
 
@@ -89,27 +114,39 @@ Block types and their data schemas are defined in `src/lib/prompts.js`. The seve
 
 ## Component Patterns
 
-- All components are client components (`'use client'`) — no server components are used
+- All components are client components (`'use client'`) — no server components are used (except `src/app/learn/page.js` which is a server component that fetches lessons)
 - Block components receive `{ data, onContinue }` props
 - `onContinue` is only passed in progressive disclosure (learn) mode
 - Lesson state lives in `BuildPage` and flows down: `BuildPage → ChatPanel` (sends messages), `BuildPage → LessonPreview → LessonRenderer → BlockRenderer → *Block`
 - **All block titles** must be wrapped in `<RichText inline>` for markdown/LaTeX rendering. Every block component already does this — maintain this when adding new block types.
 - CSS uses BEM-like flat classes (`.block-reading`, `.quiz-option.selected`), all in `globals.css`
 - No component-scoped CSS modules
+- Context hooks (`useMode`, `useI18n`, `useTheme`, `useToast`) are available in all client components
 
 ## Design Language
 
 The UI follows a **light, airy, editorial** aesthetic. Every new component must match this language:
 
-- **Palette**: All light — white panels (`--bg-panel`), off-white backgrounds (`--bg: #f8fafc`), hover states (`--bg-hover: #f1f5f9`). No dark backgrounds, no dark headers. The only dark color is `--text: #1e293b` for body text.
+- **Palette**: All light — white panels (`--bg-panel`), off-white backgrounds (`--bg: #f8fafc`), hover states (`--bg-hover: #f1f5f9`). No dark backgrounds, no dark headers. The only dark color is `--text: #1e293b` for body text. Dark mode inverts via CSS variables.
 - **Accent**: Indigo/purple (`--primary: #6366f1`) used sparingly — buttons, active states, key term highlights, left borders. Never overwhelming.
-- **Typography**: Libre Baskerville serif for all body text (both `--font-sans` and `--font-serif` map to it). Monospace (`--font-mono`) only for code. The serif face gives lessons a textbook/editorial feel.
+- **Typography**: Fraunces serif for headings, Inter sans-serif for body text. Monospace (`--font-mono`) only for code.
 - **Cards**: White background, `1px solid var(--border)` border, `border-radius: 12px`, `box-shadow: var(--shadow)` (very subtle). All lesson blocks are cards.
 - **Buttons**: Pill-shaped for small actions (`border-radius: 999px`), standard radius for block-level buttons. Primary = purple fill + white text. Secondary = light bg + border. Ghost = transparent + muted text.
 - **Spacing**: Generous padding (24-32px inside cards), clear gaps between blocks (20px). Content breathes.
 - **Feedback colors**: Success green (`--success: #10b981`), error rose (`--error: #f43f5e`), warning amber (`--warning: #f59e0b`). Each has a light variant for backgrounds.
-- **No dark mode**: Everything is light. Dark elements (dark code block headers, dark panels) clash with the design and should never be used.
 - **Animations**: Subtle — `fadeIn`, `slideIn`, `fadeSlideIn`, `slideForward`/`slideBackward` for lesson navigation. Shimmer effect on active status pills. Nothing flashy.
+
+## Internationalization
+
+Five languages supported: English, Spanish, French, German, Japanese. Translation files in `src/lib/i18n/translations/`.
+
+- Auto-detects browser locale on first visit
+- Persists selection to localStorage (`edubuilder_locale`)
+- `t(key, params)` supports parameter interpolation: `t('blocks_count', { count: 5 })` → "5 blocks"
+- Falls back to English if translation key missing
+- Covers: onboarding, navigation, library, chat, learning, sharing, block types, completion messages
+
+To add a new language: create `src/lib/i18n/translations/{code}.js` with same key structure as `en.js`, then add to `SUPPORTED_LOCALES` in `src/lib/i18n/index.js`.
 
 ## Conventions
 
@@ -120,6 +157,7 @@ The UI follows a **light, airy, editorial** aesthetic. Every new component must 
 - **Naming**: PascalCase components, camelCase functions/variables, kebab-case CSS classes
 - **Imports**: named imports for libs, default imports for components
 - Async params in Next.js 16 routes: `const { id } = await params;`
+- **localStorage keys**: prefixed with `edubuilder_` (e.g. `edubuilder_mode`, `edubuilder_locale`, `edubuilder_theme`)
 
 ## System Prompt (src/lib/prompts.js)
 
@@ -169,6 +207,11 @@ Touch `claude.js` (server-side callbacks) and `ChatPanel.js` (client-side SSE pa
 2. Add handler in `claude.js` `streamChat()` tool processing block
 3. Add callback wiring in `route.js`
 4. Handle the SSE event in `ChatPanel.js`
+
+**Adding a new language:**
+1. Create translation file in `src/lib/i18n/translations/{code}.js`
+2. Add locale to `SUPPORTED_LOCALES` in `src/lib/i18n/index.js`
+3. Add flag/label in `AppRail.js` language selector
 
 ## Next.js 16 Notes
 

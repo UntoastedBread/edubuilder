@@ -3,6 +3,34 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
+import { useMode } from '@/lib/ModeContext';
+import { useI18n } from '@/lib/I18nContext';
+
+function RotatingWord() {
+  const { mode } = useMode();
+  const { t } = useI18n();
+  const modeKey = mode === 'teacher' ? 'teacher' : 'learner';
+  const words = t(`words.${modeKey}`).split(',');
+  const [index, setIndex] = useState(0);
+  const [animating, setAnimating] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAnimating(true);
+      setTimeout(() => {
+        setIndex((i) => (i + 1) % words.length);
+        setAnimating(false);
+      }, 300);
+    }, 2800);
+    return () => clearInterval(interval);
+  }, [words.length]);
+
+  return (
+    <span className={`rotating-word ${animating ? 'rotating-word-out' : 'rotating-word-in'}`}>
+      {words[index]}
+    </span>
+  );
+}
 
 function ImageReview({ images, onAction }) {
   return (
@@ -99,7 +127,7 @@ function StatusMessage({ message, onScrollToBlock }) {
         </button>
       )}
       {showDebug && (
-        <div style={{ width: '100%', marginTop: 4, padding: '6px 8px', background: '#f1f5f9', borderRadius: 6, fontSize: 11, fontFamily: 'var(--font-mono)', lineHeight: 1.5, color: '#475569', wordBreak: 'break-all' }}>
+        <div style={{ width: '100%', marginTop: 4, padding: '6px 8px', background: 'var(--bg-hover)', borderRadius: 6, fontSize: 11, fontFamily: 'var(--font-mono)', lineHeight: 1.5, color: 'var(--text-muted)', wordBreak: 'break-all' }}>
           <div><strong>type:</strong> {message.type}</div>
           <div><strong>content:</strong> {message.content}</div>
           <div><strong>done:</strong> {String(!!message.done)}</div>
@@ -108,7 +136,7 @@ function StatusMessage({ message, onScrollToBlock }) {
           <div><strong>statusIndex:</strong> {message.statusIndex ?? 'null'}</div>
           <div><strong>partialCount:</strong> {message.partialCount ?? 'null'}</div>
           <div><strong>blocks:</strong> {message.blocks ? message.blocks.length : 'null'}</div>
-          <hr style={{ border: 'none', borderTop: '1px solid #cbd5e1', margin: '4px 0' }} />
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           <div><strong>inputChars:</strong> {message._dbgChars ?? '—'}</div>
           <div><strong>statusFound:</strong> {message._dbgHasStatus != null ? String(message._dbgHasStatus) : '—'}</div>
           <div style={{ opacity: 0.7 }}><strong>snippet:</strong> {message._dbgSnippet ?? '—'}</div>
@@ -135,6 +163,7 @@ function StatusMessage({ message, onScrollToBlock }) {
 export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendRef, expanded, onStarted }) {
   const startedRef = useRef(false);
   const [welcomeLayout, setWelcomeLayout] = useState(true);
+  const [welcomeVisible, setWelcomeVisible] = useState(true);
   const [messages, setMessages] = useState([]);
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState('');
@@ -160,6 +189,8 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
       // Delay layout class removal by one frame so the browser paints the
       // "from" state and CSS transitions animate smoothly
       requestAnimationFrame(() => setWelcomeLayout(false));
+      // Keep welcome content mounted briefly for fade-out animation
+      setTimeout(() => setWelcomeVisible(false), 300);
     }
 
     const userMessage = { role: 'user', content: text };
@@ -172,7 +203,6 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
     // Collect low-confidence images across all tool_calls in this stream
     const lowConfidenceImages = [];
     hadToolCallsRef.current = false;
-    let planningPillInserted = false;
 
     try {
       const abortController = new AbortController();
@@ -186,6 +216,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
             .filter((m) => m.role === 'user' || m.role === 'assistant')
             .map((m) => ({ role: m.role, content: m.content })),
           lesson,
+          mode,
         }),
         signal: abortController.signal,
       });
@@ -194,6 +225,8 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
       const decoder = new TextDecoder();
       let buffer = '';
       let fullText = '';
+      // eventType persists across read() calls so events split across chunks still work
+      let eventType = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -202,8 +235,6 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
-        let eventType = null;
 
         for (const line of lines) {
           if (line.startsWith('event: ')) {
@@ -214,39 +245,17 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
             if (eventType === 'text') {
               fullText += data.content;
               setStreamingText(fullText);
-              if (!planningPillInserted && !hadToolCallsRef.current && (!lesson.blocks || lesson.blocks.length === 0)) {
-                planningPillInserted = true;
+            } else if (eventType === 'tool_start') {
+              // Only save pre-tool text if this is the FIRST tool call
+              // (suppress connecting text between consecutive tool calls)
+              if (!hadToolCallsRef.current && fullText.trim().length > 1) {
+                const savedText = fullText;
                 setMessages((prev) => [
                   ...prev,
-                  { role: 'status', type: 'plan', content: 'Planning...', done: false },
+                  { role: 'assistant', content: savedText },
                 ]);
               }
-            } else if (eventType === 'tool_start') {
-              const isFirstTool = !hadToolCallsRef.current;
               hadToolCallsRef.current = true;
-              if (fullText.trim().length > 1) {
-                const savedText = fullText;
-                const isPlan = isFirstTool && (!lesson.blocks || lesson.blocks.length === 0);
-                if (isPlan) {
-                  // Mark planning pill as done, store plan text as hidden message
-                  setMessages((prev) => {
-                    const updated = [...prev];
-                    for (let i = updated.length - 1; i >= 0; i--) {
-                      if (updated[i].role === 'status' && updated[i].type === 'plan' && !updated[i].done) {
-                        updated[i] = { ...updated[i], done: true, content: 'Planned' };
-                        break;
-                      }
-                    }
-                    updated.push({ role: 'assistant', content: savedText, isPlan: true });
-                    return updated;
-                  });
-                } else {
-                  setMessages((prev) => [
-                    ...prev,
-                    { role: 'assistant', content: savedText },
-                  ]);
-                }
-              }
               fullText = '';
               setStreamingText('');
 
@@ -255,12 +264,12 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
               if (data.name === 'web_search') {
                 statusContent = 'Searching...';
                 statusType = 'search';
-              } else if (data.name === 'update_lesson') {
-                statusContent = 'Updating lesson...';
-                statusType = 'build';
               } else if (data.name === 'review_lesson') {
                 statusContent = 'Reviewing lesson...';
                 statusType = 'review';
+              } else if (data.name === 'search_blocks') {
+                statusContent = 'Searching blocks...';
+                statusType = 'search_blocks';
               }
               if (statusContent) {
                 setMessages((prev) => [
@@ -269,15 +278,19 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                 ]);
               }
             } else if (eventType === 'tool_status') {
-              // Update the most recent active status pill with the real message
+              // Update the most recent active status pill, or create one if none exists
               const statusMessages = Array.isArray(data.message) ? data.message : [data.message];
               setMessages((prev) => {
                 const updated = [...prev];
+                let found = false;
                 for (let i = updated.length - 1; i >= 0; i--) {
                   if (updated[i].role === 'status' && !updated[i].done) {
+                    found = true;
                     const msg = updated[i];
                     if (msg.type === 'search') {
                       updated[i] = { ...msg, content: `Searching: ${statusMessages[0]}` };
+                    } else if (msg.type === 'search_blocks') {
+                      updated[i] = { ...msg, content: `Searching blocks: ${statusMessages[0]}` };
                     } else if (msg.type === 'build') {
                       // Jump to the right index if partials already arrived before status
                       const idx = Math.min(msg.partialCount || 0, statusMessages.length - 1);
@@ -290,6 +303,15 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                     }
                     break;
                   }
+                }
+                // No active pill — create one (happens for update_lesson, which skips tool_start pill)
+                if (!found) {
+                  updated.push({
+                    role: 'status',
+                    type: 'build',
+                    content: `${statusMessages[0]}...`,
+                    done: false,
+                  });
                 }
                 return updated;
               });
@@ -317,14 +339,14 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
               }
               onLessonUpdate([{ action: '_set_streaming_block', blockId, block }]);
             } else if (eventType === 'tool_block_partial') {
-              // A complete block extracted from the tool input
+              // A complete block extracted from the tool input — render it fully
               const block = data.block;
               if (block && block.id) {
                 if (partialBlockIdsRef.current.has(block.id)) {
-                  // Block already exists (from content streaming) — update its data in place
-                  onLessonUpdate([{ action: '_set_streaming_block', blockId: block.id, block: { type: block.type, data: block.data } }]);
+                  // Block already exists (from content streaming) — finalize it (clear _streaming, set final data)
+                  onLessonUpdate([{ action: '_finalize_block', blockId: block.id, block: { type: block.type, data: block.data } }]);
                 } else {
-                  block._streaming = true;
+                  // Block wasn't content-streamed — add it directly without _streaming flag
                   partialBlockIdsRef.current.add(block.id);
                   onLessonUpdate([{ action: 'add', block }]);
                 }
@@ -361,7 +383,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                   onTitleUpdate(data.input.title);
                 }
 
-                const ops = data.input.operations;
+                const ops = data.input.operations || [];
                 const streamedIds = partialBlockIdsRef.current;
 
                 // Filter out add ops whose blocks were already streamed as partials
@@ -424,7 +446,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                 }
               }
             } else if (eventType === 'tool_result') {
-              const doneType = data.name === 'web_search' ? 'search' : data.name === 'update_lesson' ? 'build' : data.name === 'review_lesson' ? 'review' : null;
+              const doneType = data.name === 'web_search' ? 'search' : data.name === 'update_lesson' ? 'build' : data.name === 'review_lesson' ? 'review' : data.name === 'search_blocks' ? 'search_blocks' : null;
               if (doneType) {
                 setMessages((prev) => {
                   const updated = [...prev];
@@ -433,7 +455,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                     if (updated[i].role === 'status' && !updated[i].done && updated[i].type === doneType) {
                       const msg = updated[i];
                       let doneContent = msg.content;
-                      if (msg.type === 'search') {
+                      if (msg.type === 'search' || msg.type === 'search_blocks') {
                         doneContent = msg.content.replace('Searching', 'Searched');
                       } else if (msg.type === 'review') {
                         doneContent = msg.content.replace('Reviewing', 'Reviewed').replace(/\.{3}$/, '');
@@ -449,7 +471,9 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
                 });
               }
             } else if (eventType === 'text_break') {
-              if (fullText.trim().length > 1) {
+              // Only save text_break content if tool calls haven't started
+              // (suppress connecting text between consecutive tool calls)
+              if (!hadToolCallsRef.current && fullText.trim().length > 1) {
                 const savedText = fullText;
                 setMessages((prev) => [
                   ...prev,
@@ -465,12 +489,6 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
             eventType = null;
           }
         }
-      }
-
-      // If planning pill was inserted but no tools were called,
-      // it was a clarifying question — remove the pill
-      if (planningPillInserted && !hadToolCallsRef.current) {
-        setMessages((prev) => prev.filter((m) => !(m.role === 'status' && m.type === 'plan')));
       }
 
       if (fullText.trim().length > 1) {
@@ -505,7 +523,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
         console.error('Chat error:', err);
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+          { role: 'assistant', content: t('error.generic') },
         ]);
       }
     } finally {
@@ -577,22 +595,20 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
   }
 
   const hasActiveStatus = messages.some((m) => m.role === 'status' && !m.done);
+  const { mode } = useMode();
+  const { t } = useI18n();
+  const modeKey = mode === 'teacher' ? 'teacher' : 'learner';
 
-  const suggestedPrompts = [
-    'Teach photosynthesis to 8th graders',
-    'A-level Chemistry: organic reactions',
-    'Introduction to fractions for Year 4',
-    'High school history: causes of WWI',
-  ];
+  const suggestedPrompts = [0, 1, 2, 3].map(i => t(`prompts.${modeKey}.${i}`));
 
   return (
     <div className={`chat-panel${welcomeLayout ? ' chat-panel-welcome' : ''}`}>
       <div className="chat-welcome-spacer" />
       <div className="chat-messages">
-        {messages.length === 0 && !streaming && (
-          <div className="chat-welcome">
-            <h3>What would you like to teach?</h3>
-            <p className="text-muted">Describe a topic, level, and any specifics &mdash; I&apos;ll build the lesson.</p>
+        {welcomeVisible && !streaming && (
+          <div className={`chat-welcome${messages.length > 0 ? ' chat-welcome-exit' : ''}`}>
+            <h3>{t(`welcome.heading.${modeKey}`)} <RotatingWord />?</h3>
+            <p className="text-muted">{t(`welcome.subtitle.${modeKey}`)}</p>
           </div>
         )}
         {messages.map((msg, i) => {
@@ -608,8 +624,6 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
             return <ImageReview key={i} images={msg.images} onAction={handleImageReviewAction} />;
           }
 
-          if (msg.isPlan) return null;
-
           return (
             <div key={i}>
               <ChatMessage
@@ -619,8 +633,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
             </div>
           );
         })}
-        {streaming && streamingText.trim().length > 1
-          && (hadToolCallsRef.current || lesson.blocks?.length > 0) && (
+        {streaming && streamingText.trim().length > 1 && (
           <ChatMessage
             message={{ role: 'assistant', content: streamingText }}
             isStreaming={true}
@@ -629,7 +642,7 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
         {streaming && !streamingText.trim() && !hasActiveStatus && (
           <div className="chat-thinking">
             <span className="dot-pulse" />
-            <span className="chat-thinking-text">Thinking...</span>
+            <span className="chat-thinking-text">{t('thinking')}</span>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -639,9 +652,10 @@ export default function ChatPanel({ onLessonUpdate, onTitleUpdate, lesson, sendR
         onStop={() => abortRef.current?.abort()}
         disabled={streaming}
         streaming={streaming}
+        showPalette={welcomeVisible && !streaming && messages.length === 0}
       />
-      {messages.length === 0 && !streaming && (
-        <div className="suggested-prompts">
+      {welcomeVisible && !streaming && (
+        <div className={`suggested-prompts${messages.length > 0 ? ' suggested-prompts-exit' : ''}`}>
           <div
             className="suggested-prompts-track"
             onScroll={(e) => {

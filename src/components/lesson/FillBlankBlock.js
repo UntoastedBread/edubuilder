@@ -22,27 +22,27 @@ function levenshtein(a, b) {
 }
 
 export default function FillBlankBlock({ data, onContinue, onScore }) {
-  // Guard for partial data during streaming
-  if (!data.blanks || !data.template) {
-    return <div className="block block-fill-blank" />;
-  }
-
-  const [answers, setAnswers] = useState(data.blanks.map(() => ''));
+  const blanks = data.blanks || [];
+  const [answers, setAnswers] = useState(() => blanks.map(() => ''));
   const [submitted, setSubmitted] = useState(false);
   const [selectedBlank, setSelectedBlank] = useState(0);
   const [usedChips, setUsedChips] = useState(new Set());
 
   // Shuffled word bank from all correct answers
   const wordBank = useMemo(() => {
-    const words = data.blanks.map((b) => b.answer);
-    // Fisher-Yates shuffle
+    const words = blanks.map((b) => b.answer);
     const shuffled = [...words];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [data.blanks]);
+  }, [blanks]);
+
+  // Guard for partial data during streaming (hooks must be above)
+  if (!data.blanks || !data.template) {
+    return <div className="block block-fill-blank" />;
+  }
 
   function handleChange(index, value) {
     const next = [...answers];
